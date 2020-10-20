@@ -1,0 +1,178 @@
+---
+title: "Practical Machine Learning"
+author: "Harsh"
+date: "10/20/2020"
+output:
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Overview
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The data consists of a Training data and a Test data (to be used to validate the selected model).
+
+The goal of this  project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set.
+
+### Loading The Required Packages
+
+```{r results='hide',message=FALSE,warning=FALSE}
+library(caret)
+library(gbm)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(rattle)
+```
+
+### Reading the Data
+
+```{r cache=TRUE}
+# Reading the training dataset
+train_data <-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=TRUE)
+# Reading the test dataset
+test_data <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),header=TRUE)
+```
+
+### Analyzing & Processing the Data
+
+```{r cache=TRUE}
+str(train_data)
+```
+
+```{r cache=TRUE}
+# Calculating no of NAs in each column for training set
+train_data_na_col<-sapply(train_data,function(x) sum(is.na(x)))
+unique(train_data_na_col)
+```
+
+We observe that many columns of training dataset are filled with Na values.Therefore we will remove such columns.
+
+```{r cache=TRUE}
+train_data_na_col<-train_data_na_col[train_data_na_col>0]
+train_data_na_col_names<-which(names(train_data) %in% names(train_data_na_col))
+train_data_cleaned<-train_data[,-train_data_na_col_names]
+```
+
+Next we will elimnate any variable with near zero variance as they are not heplful to show correlation or causality.
+
+```{r cache=TRUE}
+train_data_nzv<-nearZeroVar(train_data_cleaned)
+train_data_cleaned<-train_data_cleaned[,-train_data_nzv]
+```
+
+```{r cache=TRUE}
+str(train_data_cleaned,list.len=7)
+```
+The first 7 variables don't have any significant impact on the outcome,thus we are going to remove these columns
+
+```{r cache=TRUE}
+train_data_cleaned<-train_data_cleaned[,-c(1:7)]
+```
+
+Similary we will clean the test dataset
+
+```{r cache=TRUE}
+test_data_na_col<-sapply(test_data,function(x) sum(is.na(x)))
+test_data_na_col<-test_data_na_col[test_data_na_col>0]
+test_data_na_col_names<-which(names(test_data) %in% names(test_data_na_col))
+test_data_cleaned<-test_data[,-test_data_na_col_names]
+test_data_nzv<-nearZeroVar(test_data_cleaned)
+test_data_cleaned<-test_data_cleaned[,-test_data_nzv]
+test_data_cleaned<-test_data_cleaned[,-c(1:7)]
+```
+
+We will now partition the training dataset into two parts - 70% training data and 30% test data.
+```{r cache=TRUE}
+set.seed(400)
+train_part<- createDataPartition(train_data_cleaned$classe, p=0.70, list=FALSE)
+train1_cleaned <- train_data_cleaned[train_part,]
+test1_cleaned <- train_data_cleaned[-train_part,]
+dim(train1_cleaned)
+dim(test1_cleaned)
+```
+
+### Using Machine Learning Algorithms For Prediction
+We will use 3 methods for modelling the data and choose the one with highest accuracy for the quiz. These methods are: Decision Tree, Random Forests & Generalized Boosted Model.  
+We will use a Confusion Matrix to validate the dataset and then plot it for better visualisation.
+#### Decision Tree
+
+```{r cache=TRUE}
+set.seed(400)
+decision_tree <- rpart(classe ~ ., data=train1_cleaned, method="class")
+fancyRpartPlot(decision_tree)
+```
+
+We will now validate the results using the confusion matrix
+```{r cache=TRUE}
+predict_tree <- predict(decision_tree, test1_cleaned, type = "class")
+confmat_dectree <- confusionMatrix(predict_tree, test1_cleaned$classe)
+confmat_dectree
+```
+
+```{r}
+# Plotting the results of confusion matrix
+dec_tree_accuracy_msg<-paste("Accuracy=",round(confmat_dectree$overall[1],digits = 3))
+plot(confmat_dectree$table, col = confmat_dectree$byClass, main =dec_tree_accuracy_msg)
+```
+
+#### Random Forests
+
+```{r cache=TRUE}
+set.seed(400)
+mod_fit_randfor <- randomForest(classe ~. , data=train1_cleaned)
+prediction_randfor<- predict(mod_fit_randfor, test1_cleaned, type = "class")
+```
+
+Using confusion matrix to test the accuracy
+
+```{r}
+confmat_randfor<-confusionMatrix(prediction_randfor,test1_cleaned$classe)
+confmat_randfor
+```
+
+```{r}
+# Plotting the results of confusion matrix
+randfor_accuracy_msg<-paste("Accuracy=",round(confmat_randfor$overall[1],digits = 3))
+plot(confmat_randfor$table,col=confmat_randfor$byClass, main =randfor_accuracy_msg)
+```
+
+#### Generalized Boosted Model
+
+```{r cache=TRUE}
+set.seed(400)
+control_gbm <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modelfit_gbm <- train(classe ~ ., data=train1_cleaned, method = "gbm",trControl=control_gbm, verbose = FALSE)
+```
+
+Using confusion matrix for validation with testset
+
+```{r}
+prediction_gbm <- predict(modelfit_gbm, newdata=test1_cleaned)
+confmat_gbm <- confusionMatrix(prediction_gbm, test1_cleaned$classe)
+confmat_gbm
+```
+
+```{r}
+# Plotting the results of confusion matrix
+gbm_accuracy_msg<-paste("Accuracy=",round(confmat_gbm$overall[1],digits = 3))
+plot(confmat_gbm$table,col=confmat_gbm$byClass, main =gbm_accuracy_msg)
+```
+
+### Conclusion
+
+The accuracy of the 3 ml algorithms are  
+Decision Tree->70.4%   
+Random forests->99.5%   
+Generalized Boosted Model->96.3%  
+Since the accuracy for random forests is highest,we will be using it for the quiz predictions
+```{r cache=TRUE}
+predict_test<-predict(mod_fit_randfor,test_data_cleaned)
+predict_test
+```
